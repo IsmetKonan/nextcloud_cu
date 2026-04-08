@@ -94,8 +94,14 @@ $counter = 1
 
 foreach ($user in $users) {
 
-    if (-not $user.userid) { continue }
+    # Skip if userid or password is missing
+    if (-not $user.userid -or -not $user.password) {
+        Write-Host "Skipping user: missing userid or password." -ForegroundColor Yellow
+        Write-Log "Skipped user: missing userid or password for entry in Excel" "WARNING"
+        continue
+    }
 
+    # Check if user already exists
     $checkUri = "$baseUrl/ocs/v1.php/cloud/users/$($user.userid)?format=json"
     $userExists = $false
     try {
@@ -114,6 +120,7 @@ foreach ($user in $users) {
         continue
     }
 
+    # Create user
     $uri = "$baseUrl/ocs/v1.php/cloud/users?format=json"
     $body = @{
         userid      = $user.userid
@@ -123,36 +130,45 @@ foreach ($user in $users) {
     }
 
     try {
-        Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ContentType "application/x-www-form-urlencoded"
-        Write-Host "User created: $($user.userid)" -ForegroundColor Green
-        Write-Log "User created: $($user.userid)" "SUCCESS"
-
-        $outlook = New-Object -ComObject Outlook.Application
-        $mail = $outlook.CreateItem(0) 
-
-        $mail.Subject = "Ihr Account wurde erstellt, $($user.displayName)!"
-        $mail.To = $user.email
-
-        $mail.Body = "Hallo $($user.displayName)!`n`n" +
-                     "Ihr Account wurde erstelllt, `n`n" + 
-                     "die url zum Login lautet: $baseUrl`n`n" +
-                     "`nUser ID: $($user.userid)`nPassword: $($user.password)`n`Bitte aenderen sie ihr Passwort nach dem ersten Login!`n`n" +
-                     "Viele Gruesse,`nIhr ece24 Team"
-
-        $fileName = "mail_$($user.userid).msg"
-	    $fullPath = Join-Path -Path $localDir -ChildPath $fileName
-	    $mail.SaveAs($fullPath, 3)
+        # API call and capture full response
+        $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ContentType "application/x-www-form-urlencoded"
         
-	    Write-Host "msg erstellt for: $fullPath" -ForegroundColor Cyan
+        Write-Host "API Response: $($response | ConvertTo-Json -Depth 5)" -ForegroundColor Cyan
 
-        $counter++
+        # Check if creation succeeded
+        if ($response.ocs.meta.statuscode -eq 100) {
+            Write-Host "User created: $($user.userid)" -ForegroundColor Green
+            Write-Log "User created: $($user.userid)" "SUCCESS"
+
+            # Create Outlook MSG
+            $outlook = New-Object -ComObject Outlook.Application
+            $mail = $outlook.CreateItem(0)
+            $mail.Subject = "Ihr Account wurde erstellt, $($user.displayName)!"
+            $mail.To = $user.email
+            $mail.Body = "Hallo $($user.displayName)!`n`n" +
+                         "Ihr Account wurde erstellt, `n`n" + 
+                         "die URL zum Login lautet: $baseUrl`n`n" +
+                         "User ID: $($user.userid)`nPassword: $($user.password)`nBitte ändern Sie Ihr Passwort nach dem ersten Login!`n`n" +
+                         "Viele Grüße,`nIhr ece24 Team"
+
+            $fileName = "mail_$($user.userid).msg"
+            $fullPath = Join-Path -Path $localDir -ChildPath $fileName
+            $mail.SaveAs($fullPath, 3)
+            Write-Host "MSG erstellt für: $fullPath" -ForegroundColor Cyan
+
+            $counter++
+        } else {
+            Write-Host "Failed to create user: $($user.userid)" -ForegroundColor Red
+            Write-Host "API returned status: $($response.ocs.meta.status) ($($response.ocs.meta.statuscode))" -ForegroundColor Yellow
+            Write-Log "Failed to create user: $($user.userid) - API status: $($response.ocs.meta.status) ($($response.ocs.meta.statuscode))" "ERROR"
+        }
 
     } catch {
         Write-Host "Failed to create user: $($user.userid)" -ForegroundColor Red
+        Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Log "Failed to create user: $($user.userid) - $($_.Exception.Message)" "ERROR"
     }
 }
-
 
 Write-Host $DEKO
 Write-Host 'All Done!' -ForegroundColor Green
