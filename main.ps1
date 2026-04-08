@@ -20,6 +20,9 @@ Write-Host "CC Ismet Konan"
 Write-Host "$VERSION starting up ..."
 Write-Host $DEKO
 
+if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+    Install-Module -Name ImportExcel -Scope CurrentUser -Force
+}
 Import-Module ImportExcel
 
 $localDir = Split-Path -Parent $MyInvocation.MyCommand.Path
