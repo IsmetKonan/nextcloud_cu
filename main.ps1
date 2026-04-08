@@ -160,6 +160,9 @@ foreach ($user in $users) {
         } else {
             Write-Host "Failed to create user: $($user.userid)" -ForegroundColor Red
             Write-Host "API returned status: $($response.ocs.meta.status) ($($response.ocs.meta.statuscode))" -ForegroundColor Yellow
+            Write-Log "Faild to create Users: Passwords to Short! see below to to get more detail:"
+            $responseJson = $response | ConvertTo-Json -Depth 5
+            Write-Log -Message "Full API Response: $responseJson" -Type "API_RESPONSE"
             Write-Log "Failed to create user: $($user.userid) - API status: $($response.ocs.meta.status) ($($response.ocs.meta.statuscode))" "ERROR"
         }
 
