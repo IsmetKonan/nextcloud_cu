@@ -2,3 +2,4 @@
 Download https://www.python.org/downloads/ >3.6+
 
 and install the API python -m pip install privatebinapi
+and pip install pandas openpyxl
