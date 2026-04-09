@@ -1,0 +1,3 @@
+privatebinapi
+pandas
+openpyxl

@@ -23,7 +23,6 @@ Write-Host $DEKO
 if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
     Install-Module -Name ImportExcel -Scope CurrentUser -Force
 }
-
 Import-Module ImportExcel
 
 $localDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -91,17 +90,25 @@ catch {
 $localDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $counter = 1
+$pwlinksFile = Import-Excel ".\pwlinks.xlsx"
+
+# Load the pwlinks file
+$pwlinksFile = Import-Excel ".\pwlinks.xlsx"
+
+# Build a lookup table: userid -> pwlink
+$pwlinkMap = @{}
+foreach ($entry in $pwlinksFile) {
+    if ($entry.userid -and $entry.pwlink) {
+        $pwlinkMap[$entry.userid] = $entry.pwlink
+    }
+}
+
+
 
 foreach ($user in $users) {
 
-    # Skip if userid or password is missing
-    if (-not $user.userid -or -not $user.password) {
-        Write-Host "Skipping user: missing userid or password." -ForegroundColor Yellow
-        Write-Log "Skipped user: missing userid or password for entry in Excel" "WARNING"
-        continue
-    }
+    if (-not $user.userid) { continue }
 
-    # Check if user already exists
     $checkUri = "$baseUrl/ocs/v1.php/cloud/users/$($user.userid)?format=json"
     $userExists = $false
     try {
@@ -120,7 +127,6 @@ foreach ($user in $users) {
         continue
     }
 
-    # Create user
     $uri = "$baseUrl/ocs/v1.php/cloud/users?format=json"
     $body = @{
         userid      = $user.userid
@@ -130,48 +136,53 @@ foreach ($user in $users) {
     }
 
     try {
-        # API call and capture full response
-        $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ContentType "application/x-www-form-urlencoded"
-        
-        Write-Host "API Response: $($response | ConvertTo-Json -Depth 5)" -ForegroundColor Cyan
+        Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ContentType "application/x-www-form-urlencoded"
+        Write-Host "User created: $($user.userid)" -ForegroundColor Green
+        Write-Log "User created: $($user.userid)" "SUCCESS"
 
-        # Check if creation succeeded
-        if ($response.ocs.meta.statuscode -eq 100) {
-            Write-Host "User created: $($user.userid)" -ForegroundColor Green
-            Write-Log "User created: $($user.userid)" "SUCCESS"
+        $outlook = New-Object -ComObject Outlook.Application
+        $mail = $outlook.CreateItem(0) 
 
-            # Create Outlook MSG
-            $outlook = New-Object -ComObject Outlook.Application
-            $mail = $outlook.CreateItem(0)
-            $mail.Subject = "Ihr Account wurde erstellt, $($user.displayName)!"
-            $mail.To = $user.email
-            $mail.Body = "Hallo $($user.displayName)!`n`n" +
-                         "Ihr Account wurde erstellt, `n`n" + 
-                         "die URL zum Login lautet: $baseUrl`n`n" +
-                         "User ID: $($user.userid)`nPassword: $($user.password)`nBitte ändern Sie Ihr Passwort nach dem ersten Login!`n`n" +
-                         "Viele Grüße,`nIhr ece24 Team"
+        $mail.Subject = "Ihr Account wurde erstellt, $($user.displayName)!"
+        $mail.To = $user.email
+	
+        # Get the PrivateBin link for this user
+$pwlink = $pwlinkMap[$user.userid]
 
-            $fileName = "mail_$($user.userid).msg"
-            $fullPath = Join-Path -Path $localDir -ChildPath $fileName
-            $mail.SaveAs($fullPath, 3)
-            Write-Host "MSG erstellt für: $fullPath" -ForegroundColor Cyan
+if (-not $pwlink) {
+    Write-Host "No pwlink found for $($user.userid), skipping mail." -ForegroundColor Red
+    Write-Log "Missing pwlink for: $($user.userid)" "ERROR"
+    continue
+}
 
-            $counter++
-        } else {
-            Write-Host "Failed to create user: $($user.userid)" -ForegroundColor Red
-            Write-Host "API returned status: $($response.ocs.meta.status) ($($response.ocs.meta.statuscode))" -ForegroundColor Yellow
-            Write-Log "Faild to create Users: Passwords to Short! see below to to get more detail:"
-            $responseJson = $response | ConvertTo-Json -Depth 5
-            Write-Log -Message "Full API Response: $responseJson" -Type "API_RESPONSE"
-            Write-Log "Failed to create user: $($user.userid) - API status: $($response.ocs.meta.status) ($($response.ocs.meta.statuscode))" "ERROR"
-        }
+	$outlook = New-Object -ComObject Outlook.Application
+	$mail = $outlook.CreateItem(0) 
+
+	$mail.Subject = "Ihr Account wurde erstellt, $($user.displayName)!"
+	$mail.To = $user.email
+
+	$mail.Body = "Hallo $($user.displayName)!`n`n" +
+        	"Ihr Account wurde erstellt.`n`n" + 
+             	"Login URL: $baseUrl`n`n" +
+             	"User ID: $($user.userid)`n`n" +
+             	"Ihr Passwort finden Sie hier:`n$pwlink`n`n" +
+             	"Bitte aendern Sie Ihr Passwort nach dem ersten Login.`n`n" +
+             	"Viele Gruesse,`nIhr ece24 Team"
+
+	$fileName = "mail_$($user.userid).msg"
+	$fullPath = Join-Path -Path $localDir -ChildPath $fileName
+	$mail.SaveAs($fullPath, 3)
+
+	Write-Host "msg erstellt for: $fullPath" -ForegroundColor Cyan
+
+        $counter++
 
     } catch {
         Write-Host "Failed to create user: $($user.userid)" -ForegroundColor Red
-        Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Log "Failed to create user: $($user.userid) - $($_.Exception.Message)" "ERROR"
     }
 }
+
 
 Write-Host $DEKO
 Write-Host 'All Done!' -ForegroundColor Green
