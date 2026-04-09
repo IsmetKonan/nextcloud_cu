@@ -1,5 +1,4 @@
 # nextcloud_cu
 Download https://www.python.org/downloads/ >3.6+
 
-and install the API python -m pip install privatebinapi
-and pip install pandas openpyxl
+you can find the installer for required packages in requirements and install it with installer.bat
